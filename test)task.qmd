@@ -1,0 +1,204 @@
+---
+title: "Liven test task. Data Analyst"
+author: Liliia Chervonetska
+format:
+  html:
+    theme:
+      light: cosmo
+      dark: darkly
+    toc: true
+    toc-location: left
+jupyter: python3
+---
+
+## Завдання 1 (AB testing)
+
+```{python}
+import pandas as pd
+import matplotlib.pyplot as plt
+
+df = pd.read_csv("raw_data.csv")
+```
+
+
+Чи потрібно змінювати якісь типи?
+```{python}
+df.dtypes
+```
+
+Перевела стовпці з датами у відповідний формат:
+```{python}
+df['date_reg'] = pd.to_datetime(df['date_reg'], errors='coerce')
+df['date_payment'] = pd.to_datetime(df['date_payment'], errors='coerce')
+```
+
+```{python}
+df.columns
+```
+
+
+```{python}
+df.describe()
+```
+
+
+Так як нам потрібні дані, які зібрані із нових користувачів, роблю наступну фільтрацію:
+```{python}
+filtered_df = df[(df['date_reg'] >= '2021-07-24')]
+```
+
+
+Значення кількості користувачів в кожній групі:
+```{python}
+users_a = filtered_df[(filtered_df['split_group'] == 0)]['id_user'].nunique()
+users_a
+```
+
+```{python}
+users_b = filtered_df[(filtered_df['split_group'] == 1)]['id_user'].nunique()
+users_b
+```
+
+
+Цільові дії в кожній групі:
+```{python}
+targeted_actions_a = filtered_df[(filtered_df['split_group'] == 0) & (filtered_df['successful_payment'] == 1)]['id_user'].nunique()
+targeted_actions_a
+```
+
+
+```{python}
+targeted_actions_b = filtered_df[(filtered_df['split_group'] == 1) & (filtered_df['successful_payment'] == 1)]['id_user'].nunique()
+targeted_actions_b
+```
+
+
+Тепер розрахуємо конверсію для кожної групи:
+```{python}
+conversion_a = (targeted_actions_a / users_a) * 100
+round(conversion_a, 2)
+```
+
+```{python}
+conversion_b = (targeted_actions_b / users_b) * 100
+round(conversion_b, 2)
+```
+
+
+Графік конверсії для обох груп:
+
+
+```{python}
+#| output: false
+plt.figure()
+plt.bar(['Control (0)', 'Test (1)'], [conversion_a, conversion_b])
+plt.ylabel('Conversion Rate (%)')
+plt.title('Conversion Rate by Group')
+```
+
+![](графік1.png)
+
+Можем побачити, що конверсія не дуже відрізняється. Далі я впишу наші отримані значення в AB test калькулятор.
+
+
+
+![](Screenshot 2026-02-22 100752.png)
+Отже, різниця між групами статистично незначуща (p-value > 0.05), нульова гіпотеза не відхиляється. Тому краще не впроваджувати зміни на всіх користувачів.
+
+
+## Завдання 2 (Cohort analysis)
+
+### Пункт 1
+
+Тут я працювала із sheet "Emails Sent"
+
+Спочатку я просумувала кількості імейлів та поділила на кількість інсталів для кожного рядка, де є повна когорта. Це дало результат кількості листів на 1 користувача.
+
+
+![](Screenshot 2026-02-22 120110.png)
+
+І далі я порухвала середнє значення:
+
+![](Screenshot 2026-02-22 120214.png)
+
+
+### Пункт 2
+
+Тут я працювала із sheet "User Retention Rate"
+
+Щоб порахувати скільки в середньому "живе" один користувач додатку, я вирішила спочатку знайти середнє значення по кожному тижню (стовпчику).
+Далі я використала формулу LT = 1 + R1 + R2 +....+Rn 
+
+Результат:
+
+![](Screenshot 2026-02-22 131033.png)
+
+
+### 3 Пункт
+
+Щоб знайти скільки коштує утримання користувача за допомогою email
+розсилки впродовж одного року, я помножила середню кількість листів на одного користувача (яку я порахувала в пункті 1) на 0.1. Результат: 67,82$
+
+
+### 4 пункт
+
+Для знаходження CTR я використала формулу CTR = (Кількість кліків / Кількість віправлених імейлів) * 100
+
+Результат:
+![](Screenshot 2026-02-22 140853.png)
+
+Можна побачити, що CTR різко впав на періоді 25-28 тижні. Це може бути через те, що тут менший життєвийй цикл у межах даних дат.
+
+
+## Завдання 3 (SQL)
+
+Створюбю таблицю
+
+![](Screenshot 2026-02-22 152542.png)
+
+
+Вставляю можливі дані
+![](Group 1 (2).png)
+
+
+Роблю запит, який обробляє дані
+![](Frame 1 (5).png)
+
+
+**cleaned_actions** - очищаю дані: залишаю лише записи з не-NULL id, id_user, action, date_action, і тільки action IN ('open','close'). Додаю SELECT DISTINCT, щоб прибрати дублікати однакових подій.
+
+**sessions ** - агрегую події в інтервали сесій на рівні (id, id_user):
+- **start_time** = найраніший open (через MIN)
+- **time_end** = найпізніший close (через MAX)
+Це дозволяє обробити кейси з кількома open/close в межах однієї сесії.
+
+**valid_sessions:**
+- якщо close відсутній (time_end IS NULL), вважаю, що сесія триває до поточного моменту (CURRENT_TIMESTAMP);
+- відкидаю невалідні інтервали, де start_time >= end_time (наприклад, close раніше open).
+- ten_days - обмежую аналіз останніми 10 днями (включно з поточним):
+- обрізаю start_time знизу до (current_date - 9 days)
+- обрізаю end_time зверху до current_timestamp
+- залишаю тільки ті сесії, які реально перетинають цей період.
+
+**calendar** - генерую календар останніх 10 дат (від today до today-9).
+
+**session_parts** - розбиваю кожну сесію на денні частини, роблячи перетин інтервалу сесії з кожною добою через GREATEST/LEAST. Так враховуються сесії, що перетинають межі днів (наприклад, з 23:00 до 01:00)
+
+Ну і у фіналі обираю та перевожу у години
+
+
+Результат:
+![](результат.png)
+
+Дуже довгі сесії можуть бути через те, що користувач відкрив застосунок, але не закрив його. 
+
+Також може бути можливий варіант, де є паралельні сесії одного користувача, потрібен етап мерджу інтервалів, щоб уникнути подвійного рахунку
+
+
+
+
+
+Візуалізація, щоб побачити розподіл тривалості сесій по днях (У Tableau):
+![](Sheet 1.png)
+
+Можемо побачити зростання сумарного часу онлайн до 18–19 лютого з подальшим спадом активності.
